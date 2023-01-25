@@ -2,9 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use Exception;
+use Carbon\Carbon;
 use App\Models\Product;
 use App\Models\Variant;
 use Illuminate\Http\Request;
+use App\Models\ProductVariant;
+use App\Models\ProductVariantPrice;
+use Symfony\Component\HttpFoundation\Response;
 
 class ProductController extends Controller
 {
@@ -13,9 +18,21 @@ class ProductController extends Controller
      *
      * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Http\Response|\Illuminate\View\View
      */
-    public function index()
+    public function index(Request $request)
     {
-        return view('products.index');
+        $products = Product::with(['productVariantPrice' => function($q) use($request){
+                    return $q->when(($request->price_from && $request->price_to), function($q) use($request) {
+                         $q->where('price','>=', $request->price_from)
+                        ->where('price','<=', $request->price_to);
+                        });
+                    }])
+                ->applyFilter($request)
+                ->paginate(2);
+
+        // return $vars = ProductVariant::select('id', 'variant')->groupBy('variant_id')->groupBy('product_id')->get();
+         $variants = Variant::all();
+
+        return view('products.index', compact('products','variants'));
     }
 
     /**
@@ -37,6 +54,44 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
+
+        try {
+            $product = new Product();
+            $product->fill($request->all());
+            $product->save();
+
+            if($request->get('product_variant'))
+            {
+                $product_variants = collect($request->get('product_variant'))->map(function($prodVar) use( $product){
+
+                    return collect($prodVar['tags'])->map(function($tag) use($prodVar, $product){
+
+                        $pVar = new ProductVariant();
+                        $pVar->fill([
+                            'variant' => $tag,
+                            'variant_id' => $prodVar['option'],
+                            'product_id' => $product->id,
+                            ])->save();
+                            return $pVar;
+                    });
+                });
+
+               
+
+
+            }
+
+
+            $response = [
+                'message' => $product,
+                'status' => Response::HTTP_OK
+            ];
+
+            return response()->json($response, Response::HTTP_OK);
+        } catch (Exception $exception) {
+            return response()->json($exception->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
 
     }
 
